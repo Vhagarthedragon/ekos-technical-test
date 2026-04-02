@@ -3,82 +3,115 @@
 ## Support Agent (Track A)
 
 ### Purpose
-Answer software questions for clinic staff in real time. Handle multi-turn conversations, walk through multi-step procedures, and hand off to a human when confidence is low or the user is frustrated.
+Answer ClinicDesk software questions for clinic staff in real time. Handle multi-turn conversations, walk through multi-step procedures, and hand off to a human when confidence is low or the topic is outside the agent's scope (billing disputes, legal questions, account-level issues).
+
+### Delivery model
+A **floating chat widget** embedded in the host application — not a standalone page. The launcher button lives in the bottom-right corner of any page. Clicking it opens a 360×520px panel. This matches how production support tooling actually ships inside SaaS products.
 
 ### Model
-`claude-3-5-haiku-20241022` — fast response times matter for a support chat. Haiku handles tool calling well and is significantly cheaper for high-volume conversations.
+`claude-haiku-4-5-20251001` — fast response times are essential for a support chat. The model handles tool calling well, costs less at scale, and handles ClinicDesk procedure questions accurately when grounded via the knowledge base.
 
 ### Tools
 
 | Tool | Description |
 |------|-------------|
-| `search_knowledge_base` | Full-text search over help articles in PostgreSQL |
-| `escalate_to_human` | Flags the session as escalated, saves reason to DB |
+| `search_knowledge_base` | Full-text search (`tsvector`/`tsquery`) over help articles in PostgreSQL. Returns up to 5 ranked results. |
+| `escalate_to_human` | Marks the session `escalated` in the DB, saves the reason. The session is then locked — no more AI replies. |
 
 ### Agentic loop
 ```
 user message
-    → Claude sees conversation history + system prompt
-    → calls search_knowledge_base (usually 1-2 times)
-    → tool results fed back
-    → Claude produces final text response
-    → if escalation needed: calls escalate_to_human first, then responds
+  → Claude sees full conversation history + system prompt
+  → calls search_knowledge_base (1–2 times, adapts based on results)
+  → tool results returned with titles + content
+  → Claude produces final text response
+  → if topic is out of scope: calls escalate_to_human, then replies with handoff message
 ```
 
-Claude decides how many searches to run. On simple questions it usually calls the tool once. On ambiguous ones it might search twice with different queries.
-
-### Escalation logic
-The system prompt defines clear triggers. The backend also blocks further chat on escalated sessions — the user sees a notice and the next human rep picks it up from the database.
+### Escalation triggers (defined in system prompt)
+- Insurance billing disputes or denied claim appeals
+- Account cancellation, refunds, or pricing
+- Legal or HIPAA compliance questions
+- User expresses frustration after two unhelpful responses
+- Agent has no relevant knowledge base results after two searches
 
 ### System prompt philosophy
-- Get to the point. Clinic staff are in the middle of a workday.
-- Always search before saying you don't know.
-- Escalate rather than guess on billing, legal, or account issues.
+- Get to the point — clinic staff are in the middle of a workday
+- Always search before saying you don't know
+- Give step-by-step instructions when procedures are involved
+- Escalate rather than guess on high-stakes topics
 
 ---
 
 ## Sales Agent (Track B)
 
 ### Purpose
-Given a clinic name and optional URL, research the prospect online, score their fit for ClinicDesk (0–100), and produce a personalized outreach email that sounds like it was written by a thoughtful sales rep — not a template.
+Research clinic prospects and produce personalized outreach. Operates in two modes: deep single-clinic research, and bulk city scanning.
 
 ### Model
-`claude-3-5-sonnet-20241022` — research + creative writing quality matters more than speed here. A rep will review the output before it goes anywhere.
+`claude-haiku-4-5-20251001` — handles multi-step research and structured JSON output well. The quality of the outreach drafts comes primarily from the research depth and the system prompt's explicit instructions (reference something specific, no generic openers, no formal language for WhatsApp).
 
-### Tools
+### Mode 1: Single Clinic (deep research)
+
+**Input:** clinic name + optional website URL
+
+**Pipeline:**
+```
+save prospect (status: 'researching')
+  → Claude runs 2–4 Tavily web searches about the clinic
+  → tool results fed back after each search
+  → Claude reasons over all findings
+  → returns structured JSON with:
+      location, specialty, staff_size
+      fit_score (0–100), fit_reasoning (2–3 sentences)
+      key_findings (3–5 bullets from research)
+      contact_phone, contact_email, contact_address, website_found
+      email_subject, email_body (3–4 paragraphs)
+      whatsapp_message (under 280 chars, conversational)
+update prospect (status: 'draft_ready')
+save outreach_draft (approved=FALSE)
+```
+
+**Tool:**
 
 | Tool | Description |
 |------|-------------|
-| `search_web` | Tavily search — returns titles, URLs, and content snippets |
+| `search_web` | Tavily search — returns titles, URLs, and content snippets optimized for LLM consumption. |
 
-### Pipeline
+### Mode 2: City Scan (bulk prospecting)
+
+**Input:** city name + optional specialty + result count (1–10)
+
+**Pipeline:**
 ```
-input: clinic_name + website_url
-    → save prospect to DB (status: 'researching')
-    → Claude runs 2-4 web searches about the clinic
-    → Claude reasons over findings
-    → returns structured JSON with:
-        - location, specialty, staff_size
-        - fit_score (0-100) + fit_reasoning
-        - email_subject + email_body
-        - raw_research (key findings)
-    → save prospect details + draft to DB
-    → frontend shows result for human review
+one Tavily search: "{specialty} clinics in {city}"
+  → one Claude call (no tool loop):
+      extract up to N distinct clinics from search snippets
+      quick-score each (0–100) based on available signal
+      return JSON array
+save each clinic as prospect (status: 'new')
+return scored list to frontend
 ```
 
-### Human-in-the-loop
-Drafts are stored with `approved=FALSE`. The frontend shows the email with an "Approve" button. Only after a human clicks approve does the system mark it as ready to send. This is a hard constraint — no email leaves without review.
+This runs as a single Claude call — no agentic loop — because the goal is fast triage, not deep analysis. The scores are approximate and labeled as such. The "Full Research →" button on each card triggers Mode 1.
 
 ### Fit scoring criteria (in system prompt)
-High fit (70-100): independent clinic, 1-50 staff, currently on paper or basic tools, dental or primary care.
-Medium fit (40-69): part of a small group, already using some software.
-Low fit (0-39): large hospital network, non-clinic healthcare, already on enterprise EMR.
 
-### Why Tavily
-Tavily returns clean, structured search results optimized for LLM consumption (no raw HTML). The free tier (1,000 searches/month) is sufficient for this use case. The agent typically runs 2-3 searches per prospect.
+| Signal | Points |
+|--------|--------|
+| Independent clinic (not hospital chain) | +30 |
+| Dental or primary care specialty | +20 |
+| Has a real website | +15 |
+| Small/medium staff (1–50) | +15 |
+| No visible enterprise EMR (Epic, Cerner) | +20 |
+
+Score ranges: **70–100** = strong fit, **40–69** = medium, **0–39** = weak.
+
+### Human-in-the-loop
+Drafts are stored with `approved=FALSE`. The frontend shows the email and WhatsApp message with an "Approve" button. Only after a human clicks approve does the system mark the draft as ready. This is enforced at the database layer — no email or message leaves the system without review.
 
 ---
 
-## Inter-agent handoff
+## Inter-agent connection
 
-The two agents are independent. However, there's a natural connection: if the Support Agent detects a user asking about pricing or upgrades (currently handled by an escalation), that escalation could automatically create a prospect record for the Sales Agent. This is the next iteration — the system prompt for the Support Agent could call `create_sales_prospect` instead of just flagging for a human.
+The two agents are independent modules but share the same database. A natural next step: when the Support Agent detects a staff member asking about pricing or upgrades (currently handled by escalation), instead of only flagging for a human it could call a `create_sales_prospect` tool, passing the clinic context from the session. The Sales Agent's queue would receive a warm lead with conversation context attached. The infrastructure is in place — it's a system prompt change and a new tool definition.

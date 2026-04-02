@@ -168,13 +168,11 @@
         <!-- Messages -->
         <div v-else class="widget-messages" ref="messagesEl">
           <div class="wm wm-assistant">
-            <div class="wm-bubble">
-              Hi{{ userName }}! How can I help you today?
-            </div>
+            <div class="wm-bubble" v-html="md('Hi' + userName + '! How can I help you today?')"></div>
           </div>
 
           <div v-for="(msg, i) in messages" :key="i" class="wm" :class="`wm-${msg.role}`">
-            <div class="wm-bubble">{{ msg.content }}</div>
+            <div class="wm-bubble" v-html="md(msg.content)"></div>
             <div v-if="msg.escalated" class="wm-escalated">
               ⚠ Escalated to a human agent
             </div>
@@ -201,10 +199,10 @@
               :disabled="loading || escalated"
               ref="inputEl"
             />
-            <button class="widget-send" @click="sendMessage" :disabled="loading || !input.trim() || escalated">
-              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            <button class="widget-send" @click="sendMessage" :disabled="loading || !input.trim() || escalated" :class="{ 'widget-send-active': input.trim() && !loading && !escalated }">
+              <!-- paper-plane send icon, all fill -->
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a1 1 0 00-1.39 1.06L3.5 11h8.5a.5.5 0 010 1H3.5l-1.49 6.34A1 1 0 003.4 20.4z"/>
               </svg>
             </button>
           </div>
@@ -344,6 +342,43 @@ async function sendMessage() {
 async function scrollDown() {
   await nextTick()
   if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
+}
+
+// Lightweight markdown → HTML (bold, italic, code, numbered + bullet lists, line breaks)
+function md(text) {
+  if (!text) return ''
+
+  // Escape HTML first to prevent XSS
+  let s = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // Block: numbered list  (1. item\n2. item)
+  s = s.replace(/((?:^\d+\..+\n?)+)/gm, (block) => {
+    const items = block.trim().split('\n').map(l => `<li>${l.replace(/^\d+\.\s*/, '')}</li>`).join('')
+    return `<ol>${items}</ol>`
+  })
+
+  // Block: bullet list  (- item or * item)
+  s = s.replace(/((?:^[-*]\s.+\n?)+)/gm, (block) => {
+    const items = block.trim().split('\n').map(l => `<li>${l.replace(/^[-*]\s/, '')}</li>`).join('')
+    return `<ul>${items}</ul>`
+  })
+
+  // Inline: **bold**
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+
+  // Inline: *italic*
+  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+  // Inline: `code`
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // Line breaks (not inside list tags)
+  s = s.replace(/\n/g, '<br>')
+
+  return s
 }
 </script>
 
@@ -652,25 +687,49 @@ async function scrollDown() {
 .widget-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 14px;
+  padding: 16px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.wm { display: flex; flex-direction: column; max-width: 85%; }
+.wm { display: flex; flex-direction: column; max-width: 88%; }
 .wm-user { align-self: flex-end; align-items: flex-end; }
 .wm-assistant { align-self: flex-start; }
 
 .wm-bubble {
-  padding: 9px 13px;
+  padding: 10px 14px;
   border-radius: 14px;
   font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  line-height: 1.65;
 }
 .wm-user .wm-bubble { background: #6366f1; color: #fff; border-bottom-right-radius: 4px; }
 .wm-assistant .wm-bubble { background: var(--bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; color: var(--text); }
+
+/* Markdown inside assistant bubbles */
+.wm-assistant .wm-bubble strong { font-weight: 700; color: var(--text); }
+.wm-assistant .wm-bubble em { font-style: italic; }
+.wm-assistant .wm-bubble code {
+  background: var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+}
+.wm-assistant .wm-bubble ol,
+.wm-assistant .wm-bubble ul {
+  padding-left: 20px;
+  margin: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.wm-assistant .wm-bubble ol { list-style: decimal; }
+.wm-assistant .wm-bubble ul { list-style: disc; }
+.wm-assistant .wm-bubble li { line-height: 1.55; padding-left: 2px; }
+/* Space after a heading-like bold before a list */
+.wm-assistant .wm-bubble br + ol,
+.wm-assistant .wm-bubble br + ul { margin-top: 4px; }
 
 .wm-escalated { font-size: 11px; color: #d97706; margin-top: 4px; padding-left: 2px; }
 
@@ -719,14 +778,19 @@ async function scrollDown() {
 }
 .widget-send {
   width: 30px; height: 30px;
-  background: var(--primary);
+  background: var(--border);
   border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
-  color: #fff; flex-shrink: 0;
-  transition: background 0.15s;
+  color: var(--muted); flex-shrink: 0;
+  transition: all 0.15s;
+  cursor: not-allowed;
 }
-.widget-send:hover:not(:disabled) { background: var(--primary-hover); }
-.widget-send:disabled { opacity: 0.4; cursor: not-allowed; }
+.widget-send-active {
+  background: var(--primary) !important;
+  color: #fff !important;
+  cursor: pointer !important;
+}
+.widget-send-active:hover { background: var(--primary-hover) !important; transform: scale(1.05); }
 .widget-powered { font-size: 10px; color: var(--muted); text-align: center; margin-top: 6px; }
 
 /* ── Tour ─────────────────────────────────────────── */

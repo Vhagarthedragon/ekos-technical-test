@@ -1,7 +1,8 @@
 # API Reference
 
 Base URL (local): `http://localhost:8000/api`  
-Interactive docs: `http://localhost:8000/docs`
+Base URL (production): `https://ekos-technical-test.onrender.com/api`  
+Interactive docs: `{base_url}/docs`
 
 ---
 
@@ -38,12 +39,12 @@ Send a message and get the agent's reply.
 }
 ```
 
-If `escalated` is `true`, the session is closed for further chat and a human will follow up.
+If `escalated` is `true`, the session is locked and a human will follow up.
 
 ---
 
 ### GET /support/sessions/:id/history
-Get all messages in a session.
+All messages in a session.
 
 **Response**
 ```json
@@ -58,7 +59,7 @@ Get all messages in a session.
 ## Sales Agent
 
 ### POST /sales/research
-Research a clinic and generate an outreach email draft. This call takes ~15-30 seconds (web search + LLM).
+Deep-research a clinic and generate outreach drafts. Takes ~10–20 seconds (2–4 web searches + LLM).
 
 **Body**
 ```json
@@ -75,15 +76,56 @@ Research a clinic and generate an outreach email draft. This call takes ~15-30 s
   "draft_id": "uuid",
   "fit_score": 82,
   "fit_reasoning": "Independent single-location dental clinic with ~8 staff...",
+  "location": "Miami, FL",
+  "specialty": "dental",
+  "staff_size": "small",
+  "key_findings": ["Est. 2009", "Active Google reviews", "No online booking"],
+  "contact_phone": "+1 305 000 0000",
+  "contact_email": "info@westsidedental.com",
+  "contact_address": "123 Coral Way, Miami FL 33145",
+  "website_found": "https://westsidedental.com",
   "email_subject": "Managing Westside's scheduling during your busy season",
-  "email_body": "Hi Dr. Johnson,\n\nI noticed Westside Family Dental..."
+  "email_body": "Hi Dr. Johnson,\n\nI noticed Westside Family Dental...",
+  "whatsapp_message": "Hi Dr. Johnson — saw Westside Dental has been around since 2009..."
 }
 ```
 
 ---
 
+### POST /sales/prospect-city
+Find and quick-score multiple clinics in a city. Takes ~15 seconds for up to 10 results.
+
+**Body**
+```json
+{
+  "city": "Miami, FL",
+  "specialty": "dental",
+  "max_results": 5
+}
+```
+`specialty` is optional. `max_results` must be 1–10.
+
+**Response**
+```json
+[
+  {
+    "prospect_id": "uuid",
+    "clinic_name": "Coral Gables Dental",
+    "website_url": "https://coralgablesdental.com",
+    "location": "Miami, FL",
+    "specialty": "dental",
+    "staff_size": "small",
+    "fit_score": 78,
+    "fit_reasoning": "Independent dental practice, active website, no enterprise EMR detected.",
+    "status": "new"
+  }
+]
+```
+
+---
+
 ### GET /sales/prospects
-List all researched prospects.
+All prospects, ordered by creation date.
 
 **Response**
 ```json
@@ -99,10 +141,12 @@ List all researched prospects.
 ]
 ```
 
+Possible `status` values: `new` · `researching` · `draft_ready`
+
 ---
 
 ### GET /sales/prospects/:id
-Get full prospect details including all drafts.
+Full prospect with all drafts.
 
 **Response**
 ```json
@@ -111,11 +155,22 @@ Get full prospect details including all drafts.
   "clinic_name": "...",
   "fit_score": 82,
   "fit_reasoning": "...",
+  "location": "...",
+  "specialty": "dental",
+  "staff_size": "small",
+  "raw_research": {
+    "key_findings": ["..."],
+    "contact_phone": "...",
+    "contact_email": "...",
+    "contact_address": "...",
+    "website_found": "..."
+  },
   "drafts": [
     {
       "id": "uuid",
       "subject": "...",
       "body": "...",
+      "whatsapp_message": "...",
       "approved": false,
       "created_at": "..."
     }
@@ -126,7 +181,7 @@ Get full prospect details including all drafts.
 ---
 
 ### POST /sales/drafts/:id/approve
-Approve a draft for sending (human-in-the-loop step).
+Approve a draft (human-in-the-loop step). Sets `approved=TRUE` in the database.
 
 **Response**
 ```json
@@ -145,7 +200,7 @@ Overview numbers.
 {
   "total_sessions": 12,
   "escalations": 2,
-  "prospects": 5,
+  "prospects": 8,
   "drafts_pending_approval": 3,
   "knowledge_articles": 10
 }
@@ -156,66 +211,25 @@ Overview numbers.
 ### GET /admin/sessions
 All support sessions with message counts.
 
-**Response**
-```json
-[
-  {
-    "id": "uuid",
-    "user_identifier": "jane@westsidedental.com",
-    "status": "active",
-    "message_count": 6,
-    "created_at": "..."
-  }
-]
-```
-
 ---
 
 ### GET /admin/sessions/:id
 Full session with all messages.
 
-**Response**
-```json
-{
-  "id": "uuid",
-  "user_identifier": "...",
-  "status": "escalated",
-  "messages": [
-    { "role": "user", "content": "...", "created_at": "..." },
-    { "role": "assistant", "content": "...", "created_at": "..." }
-  ]
-}
-```
-
 ---
 
 ### GET /admin/escalations
-Sessions flagged for human follow-up.
-
-**Response** — same shape as `/admin/sessions` but filtered to `status = 'escalated'`.
+Sessions with `status = 'escalated'`.
 
 ---
 
 ### GET /admin/articles
 All knowledge base articles.
 
-**Response**
-```json
-[
-  {
-    "id": "uuid",
-    "title": "How to submit an insurance claim",
-    "category": "billing",
-    "tags": ["insurance", "claims"],
-    "created_at": "..."
-  }
-]
-```
-
 ---
 
 ### POST /admin/articles
-Create a new knowledge base article.
+Create a new article.
 
 **Body**
 ```json
@@ -227,20 +241,10 @@ Create a new knowledge base article.
 }
 ```
 
-**Response**
-```json
-{ "id": "uuid" }
-```
-
 ---
 
 ### DELETE /admin/articles/:id
 Delete an article.
-
-**Response**
-```json
-{ "deleted": true }
-```
 
 ---
 
