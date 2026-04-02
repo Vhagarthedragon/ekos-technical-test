@@ -1,0 +1,30 @@
+# API Framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Base de datos
+asyncpg==0.30.0
+
+# Validación y configuración
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# IA - Anthropic Claude
+anthropic==0.42.0
+
+# Búsqueda web (Sales Agent)
+tavily-python==0.5.0
+
+# Autenticación
+PyJWT==2.10.1
+bcrypt==4.2.1
+python-multipart==0.0.20
+
+# HTTP client (para research de prospects)
+httpx==0.28.1
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.1
