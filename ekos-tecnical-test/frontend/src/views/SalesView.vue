@@ -35,8 +35,21 @@
       </button>
     </div>
 
-    <!-- Research form -->
-    <div class="card research-form" :class="{ 'tour-highlight': tourActive && tourStep === 0 }">
+    <!-- Mode tabs -->
+    <div class="mode-tabs" :class="{ 'tour-highlight': tourActive && tourStep === 0 }">
+      <button class="mode-tab" :class="{ active: mode === 'single' }" @click="mode = 'single'">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Single Clinic
+      </button>
+      <button class="mode-tab" :class="{ active: mode === 'city' }" @click="mode = 'city'">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        City Scan
+        <span class="mode-new-badge">new</span>
+      </button>
+    </div>
+
+    <!-- Single clinic form -->
+    <div v-if="mode === 'single'" class="card research-form">
       <div class="form-fields">
         <div class="field">
           <label>Clinic name *</label>
@@ -53,6 +66,83 @@
           <span v-if="loading" class="spinner"></span>
           {{ loading ? 'Researching...' : 'Research & Draft' }}
         </button>
+      </div>
+    </div>
+
+    <!-- City Scan form -->
+    <div v-if="mode === 'city'" class="card research-form">
+      <div class="form-fields city-fields">
+        <div class="field">
+          <label>City *</label>
+          <input v-model="cityName" placeholder="Miami, FL" @keyup.enter="runCityScan" />
+        </div>
+        <div class="field">
+          <label>Specialty <span class="optional">optional</span></label>
+          <select v-model="citySpecialty" class="field-select">
+            <option value="">Any</option>
+            <option value="dental">Dental</option>
+            <option value="medical">Medical / Primary care</option>
+            <option value="physio">Physiotherapy</option>
+            <option value="dermatology">Dermatology</option>
+            <option value="pediatric">Pediatric</option>
+            <option value="ophthalmology">Ophthalmology</option>
+          </select>
+        </div>
+        <div class="field field-sm">
+          <label>Results</label>
+          <select v-model="cityCount" class="field-select">
+            <option :value="3">3</option>
+            <option :value="5">5</option>
+            <option :value="8">8</option>
+            <option :value="10">10</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-footer">
+        <p v-if="cityError" class="error-msg">{{ cityError }}</p>
+        <p class="city-hint">The agent searches the web and scores each clinic in one shot (~15 sec).</p>
+        <button class="btn-primary" @click="runCityScan" :disabled="cityLoading || !cityName.trim()">
+          <span v-if="cityLoading" class="spinner"></span>
+          {{ cityLoading ? 'Scanning...' : 'Scan City' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- City Scan results -->
+    <div v-if="mode === 'city' && cityResults.length" class="city-results">
+      <div class="city-results-header">
+        <h3>Found {{ cityResults.length }} clinics in <em>{{ lastCity }}</em></h3>
+        <p class="city-results-sub">Click "Full Research" to generate personalized drafts for any clinic.</p>
+      </div>
+      <div class="city-grid">
+        <div v-for="c in cityResults" :key="c.prospect_id" class="city-card card">
+          <div class="city-card-top">
+            <div class="city-card-score" :class="cityScoreClass(c.fit_score)">
+              {{ c.fit_score }}<span class="city-score-denom">/100</span>
+            </div>
+            <div class="city-card-info">
+              <p class="city-card-name">{{ c.clinic_name }}</p>
+              <p class="city-card-meta">
+                <span v-if="c.specialty" class="city-tag">{{ c.specialty }}</span>
+                <span v-if="c.staff_size && c.staff_size !== 'unknown'" class="city-tag">{{ c.staff_size }}</span>
+                <span class="city-tag city-tag-loc">
+                  <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  {{ c.location }}
+                </span>
+              </p>
+              <a v-if="c.website_url" :href="c.website_url" target="_blank" class="city-card-url">
+                {{ c.website_url.replace(/^https?:\/\//, '').replace(/\/$/, '') }}
+              </a>
+            </div>
+          </div>
+          <p class="city-card-reasoning">{{ c.fit_reasoning }}</p>
+          <div class="city-card-bar">
+            <div class="city-bar-fill" :class="cityScoreClass(c.fit_score)" :style="{ width: c.fit_score + '%' }"></div>
+          </div>
+          <button class="city-research-btn" @click="fullResearch(c)">
+            Full Research & Draft →
+          </button>
+        </div>
       </div>
     </div>
 
@@ -158,30 +248,62 @@
 
         <!-- Email draft -->
         <div v-if="channel === 'email'" class="draft-content card">
-          <div class="draft-meta">
-            <p class="draft-subject">{{ result.email_subject }}</p>
-            <div class="draft-actions">
-              <span v-if="approved" class="badge badge-green">Approved</span>
-              <button v-else class="btn-primary btn-sm" @click="approveDraft">Approve</button>
-            </div>
+          <!-- Not ready state -->
+          <div v-if="!result.email_body" class="draft-empty">
+            <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" class="draft-empty-icon">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            <p class="draft-empty-title">Email draft not generated</p>
+            <p class="draft-empty-sub">The agent didn't return a draft for this prospect. Try running "Research & Draft" again with a more specific clinic name.</p>
           </div>
-          <div class="draft-body">{{ result.email_body }}</div>
-          <p class="review-note">Review before approving — no email is sent without your sign-off.</p>
+          <!-- Ready state -->
+          <template v-else>
+            <div class="draft-meta">
+              <div class="draft-subject-wrap">
+                <span class="draft-subject-label">Subject</span>
+                <p class="draft-subject">{{ result.email_subject || '(no subject)' }}</p>
+              </div>
+              <div class="draft-actions">
+                <span v-if="approved" class="badge badge-green">Approved</span>
+                <button v-else class="btn-primary btn-sm" @click="approveDraft">Approve</button>
+              </div>
+            </div>
+            <div class="draft-body">{{ result.email_body }}</div>
+            <p class="review-note">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Review before approving — no email is sent without your sign-off.
+            </p>
+          </template>
         </div>
 
         <!-- WhatsApp draft -->
         <div v-if="channel === 'whatsapp'" class="draft-content card">
-          <div class="draft-meta">
-            <p class="draft-subject">WhatsApp message</p>
-            <div class="draft-actions">
-              <span class="badge badge-yellow">Not connected</span>
+          <!-- Not ready state -->
+          <div v-if="!result.whatsapp_message" class="draft-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="draft-empty-icon">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <p class="draft-empty-title">WhatsApp draft not generated</p>
+            <p class="draft-empty-sub">Run "Research & Draft" to generate a short outreach message for this prospect.</p>
+          </div>
+          <!-- Ready state -->
+          <template v-else>
+            <div class="draft-meta">
+              <div class="draft-subject-wrap">
+                <span class="draft-subject-label">Channel</span>
+                <p class="draft-subject">WhatsApp · direct message</p>
+              </div>
+              <div class="draft-actions">
+                <span class="badge badge-yellow">Not connected</span>
+              </div>
             </div>
-          </div>
-          <div class="whatsapp-preview">
-            <div class="wa-bubble">{{ result.whatsapp_message }}</div>
-            <p class="wa-char-count">{{ result.whatsapp_message?.length || 0 }} chars</p>
-          </div>
-          <p class="review-note">WhatsApp integration coming soon. The message draft is ready when you connect it.</p>
+            <div class="whatsapp-preview">
+              <div class="wa-bubble">{{ result.whatsapp_message }}</div>
+              <p class="wa-char-count">{{ result.whatsapp_message?.length || 0 }} / 280 chars</p>
+            </div>
+            <p class="review-note">WhatsApp integration coming soon. The draft is ready when you connect it.</p>
+          </template>
         </div>
       </div>
     </div>
@@ -219,28 +341,28 @@ import { sales } from '../api'
 const STEPS = [
   {
     pos: 'form',
-    title: 'Research a clinic',
-    body: 'Enter any clinic name — dental, physio, dermatology, etc. Add their website to improve accuracy. The agent will search the public web for you.',
+    title: 'Two ways to find prospects',
+    body: '"Single Clinic" digs deep into one practice — full profile, contact info, and personalized drafts. "City Scan" finds and quick-scores up to 10 clinics in any city at once.',
   },
   {
     pos: 'form-btn',
-    title: 'One click to start the agent',
-    body: 'Clicking "Research & Draft" triggers the Sales Agent. It uses Tavily AI for web search and Claude to analyse findings — typically takes 10–15 seconds.',
+    title: 'The agent does the research',
+    body: 'Powered by Tavily AI (live web search) + Claude. Single clinic: ~10 sec. City scan: ~15 sec. Results include fit score, contact details, and key findings from public sources.',
   },
   {
     pos: 'score',
-    title: 'ICP Fit Score',
-    body: 'The agent scores how well the clinic matches your ideal customer profile (0–100) and explains why. Helps you prioritise outreach.',
+    title: 'ICP Fit Score (0–100)',
+    body: 'Scored on: clinic independence, specialty relevance, staff size, and absence of enterprise EMRs. The reasoning explains exactly why a clinic ranks high or low.',
   },
   {
     pos: 'drafts',
-    title: 'Personalized outreach drafts',
-    body: 'A tailored email and a WhatsApp message are generated using the research. Nothing is sent until you click Approve — full human-in-the-loop control.',
+    title: 'Outreach drafts — review before sending',
+    body: 'Email and WhatsApp message are written using real research — no generic templates. The "Approve" button is your gate: nothing leaves the system without your sign-off.',
   },
   {
     pos: 'prospects',
-    title: 'Prospect history',
-    body: 'Every researched clinic is saved here. Click any row to instantly reload its fit score, profile, and drafts — no need to re-run the agent.',
+    title: 'Full prospect history',
+    body: 'Every clinic researched or found via City Scan is saved here. Click any row to reload its full profile and drafts instantly — no re-running the agent.',
   },
 ]
 
@@ -262,10 +384,13 @@ function advanceTour() {
 
 function endTour() {
   tourActive.value = false
-  localStorage.setItem('salesTourSeen', '1')
+  localStorage.setItem('salesTourSeen', '2')
 }
 
 // ── Data ─────────────────────────────────────────────
+const mode = ref('single')
+
+// Single clinic
 const clinicName = ref('')
 const websiteUrl = ref('')
 const loading = ref(false)
@@ -273,11 +398,21 @@ const error = ref('')
 const result = ref(null)
 const approved = ref(false)
 const channel = ref('email')
+
+// City scan
+const cityName = ref('')
+const citySpecialty = ref('')
+const cityCount = ref(5)
+const cityLoading = ref(false)
+const cityError = ref('')
+const cityResults = ref([])
+const lastCity = ref('')
+
 const prospects = ref([])
 
 onMounted(async () => {
   await loadProspects()
-  if (!localStorage.getItem('salesTourSeen')) {
+  if (localStorage.getItem('salesTourSeen') !== '2') {
     setTimeout(startTour, 600)
   }
 })
@@ -298,6 +433,31 @@ async function runResearch() {
   } finally {
     loading.value = false
   }
+}
+
+async function runCityScan() {
+  if (!cityName.value.trim() || cityLoading.value) return
+  cityLoading.value = true
+  cityError.value = ''
+  cityResults.value = []
+  lastCity.value = cityName.value.trim()
+  try {
+    const res = await sales.prospectCity(cityName.value.trim(), citySpecialty.value || null, cityCount.value)
+    cityResults.value = res.data
+    await loadProspects()
+  } catch (e) {
+    cityError.value = e.response?.data?.detail || 'City scan failed. Please try again.'
+  } finally {
+    cityLoading.value = false
+  }
+}
+
+function fullResearch(cityProspect) {
+  mode.value = 'single'
+  clinicName.value = cityProspect.clinic_name
+  websiteUrl.value = cityProspect.website_url || ''
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  runResearch()
 }
 
 async function approveDraft() {
@@ -352,6 +512,12 @@ function prospectScoreClass(score) {
   if (score >= 40) return 'badge-yellow'
   return 'badge-red'
 }
+
+function cityScoreClass(score) {
+  if (score >= 70) return 'high'
+  if (score >= 40) return 'mid'
+  return 'low'
+}
 </script>
 
 <style scoped>
@@ -386,15 +552,80 @@ function prospectScoreClass(score) {
 }
 .tour-launch-btn:hover { border-color: var(--primary); color: var(--primary); }
 
+/* Mode tabs */
+.mode-tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content; }
+.mode-tab {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 16px; border-radius: 7px; font-size: 13px; font-weight: 500;
+  color: var(--muted); background: transparent; border: none; cursor: pointer; transition: all 0.15s;
+}
+.mode-tab:hover { color: var(--text); }
+.mode-tab.active { background: var(--primary); color: #fff; }
+.mode-new-badge { background: rgba(255,255,255,0.25); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.05em; }
+.mode-tab:not(.active) .mode-new-badge { background: color-mix(in srgb, var(--primary) 20%, transparent); color: var(--primary); }
+
 /* Form */
 .research-form { display: flex; flex-direction: column; gap: 16px; }
 .form-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.city-fields { grid-template-columns: 1fr 1fr auto; }
 .field { display: flex; flex-direction: column; gap: 6px; }
+.field-sm { min-width: 90px; }
 .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
 .optional { color: var(--border); font-weight: 400; }
-.form-footer { display: flex; justify-content: space-between; align-items: center; }
+.field-select {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-family: var(--font); font-size: 14px; padding: 10px 14px;
+  outline: none; transition: border-color 0.15s; cursor: pointer;
+}
+.field-select:focus { border-color: var(--primary); }
+.form-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.city-hint { font-size: 12px; color: var(--muted); flex: 1; }
 .error-msg { font-size: 13px; color: var(--danger); }
 .btn-sm { padding: 6px 14px; font-size: 13px; }
+
+/* City scan results */
+.city-results { display: flex; flex-direction: column; gap: 16px; }
+.city-results-header h3 { font-size: 16px; font-weight: 600; }
+.city-results-header em { color: var(--primary); font-style: normal; }
+.city-results-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.city-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+
+.city-card { display: flex; flex-direction: column; gap: 10px; transition: border-color 0.15s; }
+.city-card:hover { border-color: var(--primary); }
+
+.city-card-top { display: flex; gap: 14px; align-items: flex-start; }
+.city-card-score { font-size: 36px; font-weight: 800; line-height: 1; flex-shrink: 0; }
+.city-card-score.high { color: var(--success); }
+.city-card-score.mid  { color: #fbbf24; }
+.city-card-score.low  { color: var(--danger); }
+.city-score-denom { font-size: 14px; font-weight: 400; color: var(--muted); }
+
+.city-card-info { flex: 1; min-width: 0; }
+.city-card-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.city-card-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.city-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--border); color: var(--muted);
+  font-size: 11px; padding: 2px 7px; border-radius: 4px; text-transform: capitalize;
+}
+.city-tag-loc { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.city-card-url { font-size: 11px; color: var(--muted); margin-top: 4px; display: block; }
+.city-card-url:hover { color: var(--primary); }
+
+.city-card-reasoning { font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+.city-card-bar { height: 4px; background: var(--border); border-radius: 10px; overflow: hidden; }
+.city-bar-fill { height: 100%; border-radius: 10px; transition: width 0.6s ease; }
+.city-bar-fill.high { background: var(--success); }
+.city-bar-fill.mid  { background: #fbbf24; }
+.city-bar-fill.low  { background: var(--danger); }
+
+.city-research-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--primary); font-size: 12px; font-weight: 600; padding: 7px 12px;
+  border-radius: 7px; cursor: pointer; transition: all 0.15s; text-align: left;
+}
+.city-research-btn:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); border-color: var(--primary); }
 
 .spinner {
   display: inline-block;
@@ -478,7 +709,7 @@ function prospectScoreClass(score) {
   transition: all 0.15s;
 }
 .ch-tab:hover { color: var(--text); border-color: var(--primary); }
-.ch-tab.active { background: #2d2f50; color: var(--primary); border-color: var(--primary); }
+.ch-tab.active { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); border-color: var(--primary); font-weight: 600; }
 
 .soon-badge {
   background: var(--border);
@@ -489,9 +720,11 @@ function prospectScoreClass(score) {
 }
 
 .draft-content { display: flex; flex-direction: column; gap: 14px; }
-.draft-meta { display: flex; justify-content: space-between; align-items: flex-start; }
-.draft-subject { font-size: 15px; font-weight: 600; }
-.draft-actions { display: flex; align-items: center; gap: 8px; }
+.draft-meta { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.draft-subject-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.draft-subject-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.draft-subject { font-size: 14px; font-weight: 600; color: var(--text); }
+.draft-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .draft-body {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -503,7 +736,24 @@ function prospectScoreClass(score) {
   color: var(--text);
   min-height: 200px;
 }
-.review-note { font-size: 12px; color: var(--muted); }
+.review-note {
+  font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 5px;
+}
+
+/* Draft empty state */
+.draft-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 24px;
+  gap: 10px;
+}
+.draft-empty-icon { color: var(--border); }
+.draft-empty-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.draft-empty-sub { font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 320px; }
 
 /* WhatsApp preview */
 .whatsapp-preview { display: flex; flex-direction: column; gap: 8px; }

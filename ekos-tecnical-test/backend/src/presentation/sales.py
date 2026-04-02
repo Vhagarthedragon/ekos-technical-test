@@ -15,6 +15,12 @@ class ResearchRequest(BaseModel):
     website_url: str | None = None
 
 
+class CityProspectRequest(BaseModel):
+    city: str
+    specialty: str | None = None
+    max_results: int = 5
+
+
 @router.post("/research")
 async def research(body: ResearchRequest, pool: asyncpg.Pool = Depends(get_pool)):
     result = await sales_agent.research_and_draft(pool, body.clinic_name, body.website_url)
@@ -40,6 +46,14 @@ async def get_prospect(prospect_id: UUID, pool: asyncpg.Pool = Depends(get_pool)
         prospect_id,
     )
     return {**dict(row), "drafts": [dict(d) for d in drafts]}
+
+
+@router.post("/prospect-city")
+async def prospect_city(body: CityProspectRequest, pool: asyncpg.Pool = Depends(get_pool)):
+    if body.max_results < 1 or body.max_results > 10:
+        raise HTTPException(status_code=422, detail="max_results must be between 1 and 10")
+    results = await sales_agent.find_in_city(pool, body.city, body.specialty, body.max_results)
+    return results
 
 
 @router.post("/drafts/{draft_id}/approve")

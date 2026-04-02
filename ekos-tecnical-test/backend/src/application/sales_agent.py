@@ -6,8 +6,11 @@ scores their fit for ClinicDesk, and drafts outreach across two channels:
   - Email (personalized, 3-4 paragraphs)
   - WhatsApp (short, conversational, under 300 chars)
 
+Also supports city-scan mode: find multiple clinics in a city at once.
+
 Human-in-the-loop: drafts are saved with approved=False.
 """
+import asyncio
 import json
 from uuid import UUID
 
@@ -195,6 +198,91 @@ async def research_and_draft(
         "email_body": research_data.get("email_body"),
         "whatsapp_message": research_data.get("whatsapp_message"),
     }
+
+
+async def find_in_city(
+    pool: asyncpg.Pool,
+    city: str,
+    specialty: str | None,
+    max_results: int,
+) -> list[dict]:
+    """Search for clinics in a city, quick-score each, and save as prospects."""
+    query = f"{specialty + ' ' if specialty else ''}clinics in {city}"
+    search = await asyncio.to_thread(
+        tavily.search,
+        query=query,
+        search_depth="basic",
+        max_results=10,
+    )
+
+    snippets = "\n\n".join(
+        f"[{r['title']}]\nURL: {r.get('url', '')}\n{r.get('content', '')[:400]}"
+        for r in search.get("results", [])
+    )
+
+    prompt = f"""From these search results about clinics in {city}, extract up to {max_results} distinct real clinics.
+
+Search results:
+{snippets}
+
+Return ONLY a JSON array (no markdown fences, no extra text) with objects:
+{{
+  "name": "Full clinic name",
+  "website": "URL string or null",
+  "specialty": "dental | medical | physio | dermatology | other",
+  "staff_size": "solo | small | medium | large | unknown",
+  "fit_score": 0-100,
+  "fit_reasoning": "One sentence explaining the score.",
+  "location": "{city}"
+}}
+
+Scoring guide — higher = better fit for ClinicDesk (scheduling/billing SaaS):
+- Independent clinic (not hospital chain): +30
+- Dental or primary care: +20
+- Has a real website: +15
+- Small/medium staff (1-50 people): +15
+- No obvious enterprise EMR already (e.g. Epic): +20
+
+Only include real named clinics. No duplicates. No hospitals. Return raw JSON array only."""
+
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = msg.content[0].text.strip()
+    start, end = raw.find("["), raw.rfind("]") + 1
+    clinics: list[dict] = json.loads(raw[start:end]) if start != -1 else []
+
+    saved = []
+    for c in clinics[:max_results]:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO prospects
+                (clinic_name, website_url, location, specialty, staff_size,
+                 fit_score, fit_reasoning, status, raw_research)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'new', '{}')
+            RETURNING id
+            """,
+            c.get("name"), c.get("website"), c.get("location", city),
+            c.get("specialty"), c.get("staff_size"),
+            c.get("fit_score"), c.get("fit_reasoning"),
+        )
+        saved.append({
+            "prospect_id": str(row["id"]),
+            "clinic_name": c.get("name"),
+            "website_url": c.get("website"),
+            "location": c.get("location", city),
+            "specialty": c.get("specialty"),
+            "staff_size": c.get("staff_size"),
+            "fit_score": c.get("fit_score"),
+            "fit_reasoning": c.get("fit_reasoning"),
+            "status": "new",
+        })
+
+    return saved
 
 
 async def approve_draft(pool: asyncpg.Pool, draft_id: UUID) -> bool:

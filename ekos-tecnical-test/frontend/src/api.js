@@ -26,6 +26,8 @@ export const admin = {
 export const sales = {
   research: (clinicName, websiteUrl) =>
     http.post('/sales/research', { clinic_name: clinicName, website_url: websiteUrl || null }),
+  prospectCity: (city, specialty, maxResults) =>
+    http.post('/sales/prospect-city', { city, specialty: specialty || null, max_results: maxResults }),
   prospects: () =>
     http.get('/sales/prospects'),
   prospect: (id) =>
