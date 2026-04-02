@@ -94,9 +94,9 @@ UI → `http://localhost:5173`
 
 ## Docs
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Agent Design](docs/AGENT_DESIGN.md)
-- [API Reference](docs/API_SPEC.md)
-- [Database Schema](docs/DATABASE.md)
-- [Setup & Deploy](docs/SETUP.md)
-- [Write-up](docs/WRITEUP.md)
+- [Architecture](ekos-tecnical-test/docs/ARCHITECTURE.md)
+- [Agent Design](ekos-tecnical-test/docs/AGENT_DESIGN.md)
+- [API Reference](ekos-tecnical-test/docs/API_SPEC.md)
+- [Database Schema](ekos-tecnical-test/docs/DATABASE.md)
+- [Setup & Deploy](ekos-tecnical-test/docs/SETUP.md)
+- [Write-up](ekos-tecnical-test/docs/WRITEUP.md)
