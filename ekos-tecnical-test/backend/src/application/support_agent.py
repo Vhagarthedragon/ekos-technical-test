@@ -119,7 +119,6 @@ async def chat(pool: asyncpg.Pool, session_id: UUID, user_message: str) -> dict:
             messages=messages,
         )
 
-        # Collect any text blocks as the candidate reply
         for block in response.content:
             if hasattr(block, "text"):
                 reply = block.text
@@ -148,7 +147,6 @@ async def chat(pool: asyncpg.Pool, session_id: UUID, user_message: str) -> dict:
                     "content": result,
                 })
 
-            # Feed tool results back and continue the loop
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
         else:
