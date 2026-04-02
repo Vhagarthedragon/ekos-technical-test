@@ -57,7 +57,7 @@
     </div>
 
     <!-- ── Demo banner ───────────────────────────────── -->
-    <div class="demo-banner">
+    <div class="demo-banner" :class="{ 'tour-highlight': tourActive && tourStep === 0 }">
       <div class="demo-banner-left">
         <span class="demo-badge">DEMO</span>
         <span class="demo-banner-text">This is a simulated ClinicDesk environment — the widget is embedded live</span>
@@ -67,6 +67,12 @@
         <RouterLink to="/sales" class="demo-switcher-link">Sales Agent</RouterLink>
         <RouterLink to="/admin" class="demo-switcher-link">Admin</RouterLink>
       </div>
+      <button class="demo-tour-btn" @click="startTour" title="Start guided tour">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        Tour
+      </button>
       <button class="demo-theme-btn" @click="toggle" :title="isDark ? 'Light mode' : 'Dark mode'">
         <svg v-if="isDark" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
@@ -80,10 +86,32 @@
       </button>
     </div>
 
+    <!-- ── Tour overlay ──────────────────────────────── -->
+    <Transition name="fade">
+      <div v-if="tourActive" class="tour-overlay" @click.self="endTour" />
+    </Transition>
+
+    <Transition name="tooltip">
+      <div v-if="tourActive" class="tour-tooltip" :class="`tour-pos-${STEPS[tourStep].pos}`">
+        <div class="tour-step-count">{{ tourStep + 1 }} / {{ STEPS.length }}</div>
+        <p class="tour-title">{{ STEPS[tourStep].title }}</p>
+        <p class="tour-body">{{ STEPS[tourStep].body }}</p>
+        <div class="tour-actions">
+          <button class="tour-skip" @click="endTour">Skip tour</button>
+          <div class="tour-dots">
+            <span v-for="(_, i) in STEPS" :key="i" class="tour-dot" :class="{ active: i === tourStep }" />
+          </div>
+          <button class="tour-next" @click="advanceTour">
+            {{ tourStep < STEPS.length - 1 ? 'Next →' : 'Got it ✓' }}
+          </button>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ── Chat widget ───────────────────────────────── -->
 
     <!-- Launcher button -->
-    <button class="chat-launcher" @click="toggleChat" :class="{ open: isOpen }">
+    <button class="chat-launcher" @click="toggleChat" :class="{ open: isOpen, 'tour-highlight': tourActive && tourStep === 1 }">
       <svg v-if="!isOpen" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
       </svg>
@@ -98,7 +126,7 @@
       <div v-if="isOpen" class="chat-widget">
 
         <!-- Widget header -->
-        <div class="widget-header">
+        <div class="widget-header" :class="{ 'tour-highlight-inner': tourActive && tourStep === 2 }">
           <div class="widget-header-left">
             <div class="widget-avatar">AI</div>
             <div>
@@ -117,7 +145,7 @@
         </div>
 
         <!-- Start screen inside widget -->
-        <div v-if="!sessionId" class="widget-start">
+        <div v-if="!sessionId" class="widget-start" :class="{ 'tour-highlight-inner': tourActive && tourStep === 3 }">
           <p class="widget-greeting">Hi there! 👋</p>
           <p class="widget-desc">Ask anything about ClinicDesk — billing, scheduling, insurance, or your account.</p>
           <input
@@ -189,12 +217,68 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { support } from '../api'
 import { useTheme } from '../composables/useTheme'
 
 const { isDark, toggle } = useTheme()
 
+// ── Tour ──────────────────────────────────────────────
+const STEPS = [
+  {
+    pos: 'banner',
+    title: 'Simulated host app',
+    body: 'This dashboard mimics a real ClinicDesk installation. In production the widget loads via a single <script> tag — no changes to the host app needed.',
+  },
+  {
+    pos: 'launcher',
+    title: 'The chat launcher',
+    body: 'A floating button injected into the bottom-right corner of any page. Click it to open the support widget. Unread replies show a badge.',
+  },
+  {
+    pos: 'widget-top',
+    title: 'Widget header',
+    body: 'Shows the agent name and live status. Turns amber when a conversation is escalated to a human agent.',
+  },
+  {
+    pos: 'widget-body',
+    title: 'Patient-facing chat',
+    body: 'Patients type a question or pick a suggestion. The AI searches the knowledge base using RAG and replies in under 2 seconds.',
+  },
+]
+
+const tourActive = ref(false)
+const tourStep = ref(0)
+
+function startTour() {
+  tourStep.value = 0
+  tourActive.value = true
+  // make sure widget is closed so step 1 (launcher) is visible
+  isOpen.value = false
+}
+
+function advanceTour() {
+  if (tourStep.value < STEPS.length - 1) {
+    tourStep.value++
+    // auto-open widget when reaching widget steps
+    if (tourStep.value >= 2) isOpen.value = true
+  } else {
+    endTour()
+  }
+}
+
+function endTour() {
+  tourActive.value = false
+  localStorage.setItem('tourSeen', '1')
+}
+
+onMounted(() => {
+  if (!localStorage.getItem('tourSeen')) {
+    setTimeout(startTour, 800)
+  }
+})
+
+// ── Chat ─────────────────────────────────────────────
 const suggestions = [
   'How do I submit a claim?',
   'Set up a payment plan',
@@ -405,6 +489,23 @@ async function scrollDown() {
   flex-shrink: 0;
 }
 .demo-theme-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+.demo-tour-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.demo-tour-btn:hover { background: rgba(255,255,255,0.28); }
 
 /* ── Launcher button ──────────────────────────── */
 .chat-launcher {
@@ -627,4 +728,137 @@ async function scrollDown() {
 .widget-send:hover:not(:disabled) { background: var(--primary-hover); }
 .widget-send:disabled { opacity: 0.4; cursor: not-allowed; }
 .widget-powered { font-size: 10px; color: var(--muted); text-align: center; margin-top: 6px; }
+
+/* ── Tour ─────────────────────────────────────────── */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 300;
+  backdrop-filter: blur(1px);
+}
+
+/* Tooltip card */
+.tour-tooltip {
+  position: fixed;
+  z-index: 400;
+  width: 300px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+/* Arrow shared */
+.tour-tooltip::before {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+/* Positions */
+.tour-pos-banner    { top: 52px; left: 50%; transform: translateX(-50%); }
+.tour-pos-banner::before { top: -6px; left: 50%; margin-left: -5px; border-bottom: none; border-right: none; }
+
+.tour-pos-launcher  { bottom: 108px; right: 24px; }
+.tour-pos-launcher::before { bottom: -6px; right: 30px; border-top: none; border-left: none; }
+
+.tour-pos-widget-top { bottom: 420px; right: 396px; }
+.tour-pos-widget-top::before { top: 20px; right: -6px; border-bottom: none; border-left: none; }
+
+.tour-pos-widget-body { bottom: 200px; right: 396px; }
+.tour-pos-widget-body::before { bottom: 30px; right: -6px; border-bottom: none; border-left: none; }
+
+/* Content */
+.tour-step-count {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+.tour-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.tour-body {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tour-skip {
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+.tour-skip:hover { color: var(--text); }
+.tour-dots {
+  display: flex;
+  gap: 5px;
+  flex: 1;
+  justify-content: center;
+}
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.2s;
+}
+.tour-dot.active { background: var(--primary); }
+.tour-next {
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s;
+}
+.tour-next:hover { background: var(--primary-hover); }
+
+/* Highlighted elements float above overlay */
+.tour-highlight {
+  position: relative;
+  z-index: 350 !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.6), 0 0 0 8px rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  animation: tour-pulse 1.5s ease-in-out infinite;
+}
+.tour-highlight-inner {
+  position: relative;
+  z-index: 350 !important;
+  outline: 3px solid rgba(99, 102, 241, 0.7);
+  outline-offset: -1px;
+  animation: tour-pulse 1.5s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(99,102,241,0.5), 0 0 0 8px rgba(99,102,241,0.15); }
+  50%       { box-shadow: 0 0 0 6px rgba(99,102,241,0.7), 0 0 0 12px rgba(99,102,241,0.1); }
+}
+
+/* Transitions */
+.fade-enter-active, .fade-leave-active   { transition: opacity 0.25s; }
+.fade-enter-from,  .fade-leave-to        { opacity: 0; }
+.tooltip-enter-active, .tooltip-leave-active { transition: opacity 0.2s, transform 0.2s; }
+.tooltip-enter-from, .tooltip-leave-to   { opacity: 0; transform: translateY(6px) scale(0.97); }
 </style>

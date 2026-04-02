@@ -1,12 +1,42 @@
 <template>
   <div class="sales">
+
+    <!-- ── Tour overlay ──────────────────────────────── -->
+    <Transition name="fade">
+      <div v-if="tourActive" class="tour-overlay" @click.self="endTour" />
+    </Transition>
+    <Transition name="tooltip">
+      <div v-if="tourActive" class="tour-tooltip" :class="`tour-pos-${STEPS[tourStep].pos}`">
+        <div class="tour-step-count">{{ tourStep + 1 }} / {{ STEPS.length }}</div>
+        <p class="tour-title">{{ STEPS[tourStep].title }}</p>
+        <p class="tour-body">{{ STEPS[tourStep].body }}</p>
+        <div class="tour-actions">
+          <button class="tour-skip" @click="endTour">Skip tour</button>
+          <div class="tour-dots">
+            <span v-for="(_, i) in STEPS" :key="i" class="tour-dot" :class="{ active: i === tourStep }" />
+          </div>
+          <button class="tour-next" @click="advanceTour">
+            {{ tourStep < STEPS.length - 1 ? 'Next →' : 'Got it ✓' }}
+          </button>
+        </div>
+      </div>
+    </Transition>
+
     <div class="page-header">
-      <h1>Sales Agent</h1>
-      <p class="subtitle">Research a clinic, score their fit, and generate personalized outreach.</p>
+      <div class="page-header-left">
+        <h1>Sales Agent</h1>
+        <p class="subtitle">Research a clinic, score their fit, and generate personalized outreach.</p>
+      </div>
+      <button class="tour-launch-btn" @click="startTour" title="Start guided tour">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        Tour
+      </button>
     </div>
 
     <!-- Research form -->
-    <div class="card research-form">
+    <div class="card research-form" :class="{ 'tour-highlight': tourActive && tourStep === 0 }">
       <div class="form-fields">
         <div class="field">
           <label>Clinic name *</label>
@@ -33,7 +63,7 @@
       <div class="prospect-info">
 
         <!-- Fit score -->
-        <div class="card fit-card">
+        <div class="card fit-card" :class="{ 'tour-highlight': tourActive && tourStep === 2 }">
           <div class="fit-top">
             <div>
               <p class="section-label">Fit Score</p>
@@ -105,7 +135,7 @@
       </div>
 
       <!-- Right: outreach drafts -->
-      <div class="drafts-panel">
+      <div class="drafts-panel" :class="{ 'tour-highlight': tourActive && tourStep === 3 }">
         <div class="drafts-header">
           <p class="section-label">Outreach Drafts</p>
           <div class="channel-tabs">
@@ -157,7 +187,7 @@
     </div>
 
     <!-- Past prospects -->
-    <div class="prospects-section">
+    <div class="prospects-section" :class="{ 'tour-highlight': tourActive && tourStep === 4 }">
       <div class="section-header">
         <h2>Past prospects</h2>
         <button class="btn-ghost" @click="loadProspects">Refresh</button>
@@ -185,6 +215,57 @@
 import { ref, computed, onMounted } from 'vue'
 import { sales } from '../api'
 
+// ── Tour ──────────────────────────────────────────────
+const STEPS = [
+  {
+    pos: 'form',
+    title: 'Research a clinic',
+    body: 'Enter any clinic name — dental, physio, dermatology, etc. Add their website to improve accuracy. The agent will search the public web for you.',
+  },
+  {
+    pos: 'form-btn',
+    title: 'One click to start the agent',
+    body: 'Clicking "Research & Draft" triggers the Sales Agent. It uses Tavily AI for web search and Claude to analyse findings — typically takes 10–15 seconds.',
+  },
+  {
+    pos: 'score',
+    title: 'ICP Fit Score',
+    body: 'The agent scores how well the clinic matches your ideal customer profile (0–100) and explains why. Helps you prioritise outreach.',
+  },
+  {
+    pos: 'drafts',
+    title: 'Personalized outreach drafts',
+    body: 'A tailored email and a WhatsApp message are generated using the research. Nothing is sent until you click Approve — full human-in-the-loop control.',
+  },
+  {
+    pos: 'prospects',
+    title: 'Prospect history',
+    body: 'Every researched clinic is saved here. Click any row to instantly reload its fit score, profile, and drafts — no need to re-run the agent.',
+  },
+]
+
+const tourActive = ref(false)
+const tourStep = ref(0)
+
+function startTour() {
+  tourStep.value = 0
+  tourActive.value = true
+}
+
+function advanceTour() {
+  if (tourStep.value < STEPS.length - 1) {
+    tourStep.value++
+  } else {
+    endTour()
+  }
+}
+
+function endTour() {
+  tourActive.value = false
+  localStorage.setItem('salesTourSeen', '1')
+}
+
+// ── Data ─────────────────────────────────────────────
 const clinicName = ref('')
 const websiteUrl = ref('')
 const loading = ref(false)
@@ -194,7 +275,12 @@ const approved = ref(false)
 const channel = ref('email')
 const prospects = ref([])
 
-onMounted(loadProspects)
+onMounted(async () => {
+  await loadProspects()
+  if (!localStorage.getItem('salesTourSeen')) {
+    setTimeout(startTour, 600)
+  }
+})
 
 async function runResearch() {
   if (!clinicName.value.trim() || loading.value) return
@@ -278,8 +364,27 @@ function prospectScoreClass(score) {
   gap: 24px;
 }
 
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.page-header-left {}
 .page-header h1 { font-size: 24px; font-weight: 700; }
 .subtitle { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+.tour-launch-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.tour-launch-btn:hover { border-color: var(--primary); color: var(--primary); }
 
 /* Form */
 .research-form { display: flex; flex-direction: column; gap: 16px; }
@@ -431,4 +536,81 @@ function prospectScoreClass(score) {
 .prospect-url { font-size: 12px; margin-top: 2px; }
 .prospect-right { display: flex; gap: 8px; }
 .muted { color: var(--muted); }
+
+/* ── Tour ─────────────────────────────────────────── */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.52);
+  z-index: 300;
+  backdrop-filter: blur(1px);
+}
+
+.tour-tooltip {
+  position: fixed;
+  z-index: 400;
+  width: 300px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+
+.tour-tooltip::before {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+/* Positions — anchored to the page layout */
+.tour-pos-form      { top: 220px; left: 50%; transform: translateX(-50%); }
+.tour-pos-form::before { top: -6px; left: 50%; margin-left: -5px; border-bottom: none; border-right: none; }
+
+.tour-pos-form-btn  { top: 220px; right: 40px; }
+.tour-pos-form-btn::before { top: -6px; right: 30px; border-bottom: none; border-right: none; }
+
+.tour-pos-score     { top: 50%; transform: translateY(-50%); left: 50%; margin-left: -20px; }
+.tour-pos-score::before { top: 20px; left: -6px; border-top: none; border-right: none; }
+
+.tour-pos-drafts    { top: 50%; transform: translateY(-50%); right: 40px; }
+.tour-pos-drafts::before { top: 20px; right: -6px; border-bottom: none; border-left: none; }
+
+.tour-pos-prospects { bottom: 100px; left: 50%; transform: translateX(-50%); }
+.tour-pos-prospects::before { bottom: -6px; left: 50%; margin-left: -5px; border-top: none; border-left: none; }
+
+/* Tour tooltip content */
+.tour-step-count { font-size: 10px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+.tour-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.tour-body  { font-size: 13px; color: var(--muted); line-height: 1.65; margin-bottom: 16px; }
+
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-skip { font-size: 12px; color: var(--muted); background: transparent; padding: 0; border: none; cursor: pointer; }
+.tour-skip:hover { color: var(--text); }
+.tour-dots { display: flex; gap: 5px; flex: 1; justify-content: center; }
+.tour-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); transition: background 0.2s; }
+.tour-dot.active { background: var(--primary); }
+.tour-next { background: var(--primary); color: #fff; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 7px; cursor: pointer; border: none; transition: background 0.15s; }
+.tour-next:hover { background: var(--primary-hover); }
+
+/* Highlighted elements */
+.tour-highlight {
+  position: relative;
+  z-index: 350 !important;
+  border-radius: 10px;
+  animation: tour-pulse 1.5s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(99,102,241,0.5), 0 0 0 7px rgba(99,102,241,0.15); }
+  50%       { box-shadow: 0 0 0 5px rgba(99,102,241,0.7), 0 0 0 10px rgba(99,102,241,0.08); }
+}
+
+.fade-enter-active, .fade-leave-active     { transition: opacity 0.25s; }
+.fade-enter-from,  .fade-leave-to          { opacity: 0; }
+.tooltip-enter-active, .tooltip-leave-active { transition: opacity 0.2s, transform 0.2s; }
+.tooltip-enter-from, .tooltip-leave-to      { opacity: 0; transform: translateY(6px) scale(0.97); }
 </style>
